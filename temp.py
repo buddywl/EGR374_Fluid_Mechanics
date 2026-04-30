@@ -1,0 +1,256 @@
+import matplotlib.pyplot as plt
+import numpy as np
+import math
+
+
+# =============================
+# SIMULATION FUNCTION
+# =============================
+
+# CONSTANTS
+g = 9.81
+rho = 1.2
+mu_air = 1.8e-5   # dynamic viscosity of air
+
+# Wheel parameters
+r = 0.015
+I = 0.5 * 0.03 * r**2
+
+# Track
+theta = np.radians(5)
+track_length = 1.5        # meters
+
+# Characteristic length (car height-ish)
+L = 0.03      # meters
+
+def compute_Re_data(v_data):
+    return rho * v_data * L / mu_air
+
+F1_v = np.array([1.8, 3.5, 6.8, 11])
+F1_cd = np.array([0.4188, 0.1265, 0.7918, 0.6743])
+
+Block_v = np.array([1.8, 3.5, 6.8, 11])
+Block_cd = np.array([0.5252, 0.3425, 0.9630, 0.7902])
+
+Champion_v = np.array([1.8, 3.5, 6.8, 11])
+Champion_cd = np.array([0, 0.0025, 0.9046, 0.6830])
+
+F1_Re = compute_Re_data(F1_v)
+Block_Re = compute_Re_data(Block_v)
+Champion_Re = compute_Re_data(Champion_v)
+
+def simulate_car(m, A, mu_roll, label, Re_data, cd_data):
+
+    # Time setup
+    step = 0.001
+    time = 1.8
+    sec = np.arange(0, time, step)
+
+    acc = np.zeros(sec.size)
+    vel = np.zeros(sec.size)
+    pos = np.zeros(sec.size)
+
+    # def Cd_from_data(v, v_data, cd_data):
+    #     Re = rho * abs(v) * L / mu_air
+    #     return np.interp(abs(v), v_data, cd_data)
+    def Cd_from_Re(v, Re_data, cd_data):
+        Re = rho * abs(v) * L / mu_air
+        
+        # Avoid zero Reynolds issues
+        if Re < 1:
+            Re = 1
+
+        return np.interp(Re, Re_data, cd_data)
+    
+    PE = np.zeros(sec.size)
+    KE = np.zeros(sec.size)
+    KE_rot = np.zeros(sec.size)
+    E_total = np.zeros(sec.size)
+    E_loss = E_total[0] - E_total
+
+
+    # Height decreases as we go down ramp
+    h0 = track_length * np.sin(theta)
+    def height(x):
+        if x < track_length:
+            return h0 - x * np.sin(theta)
+        else:
+            return 0.0
+
+    # initial conditions
+    PE[0] = m * g * h0
+    KE[0] = 0.0
+    KE_rot[0] = 0.0
+    E_total[0] = PE[0]
+
+    # Euler integration
+    for i in range(sec.size - 1):
+
+        if pos[i] < track_length:
+            angle = theta
+        else:
+            angle = 0
+
+        # Forces
+        gravity = g * np.sin(angle)
+        rolling = mu_roll * g * np.cos(angle)
+
+        Cd = Cd_from_Re(vel[i], Re_data, cd_data)
+        # Cd = Cd_dynamic(vel[i])
+        # Cd = drag / (0.5*rho*(vel[i]**2)*A)
+
+        # drag = (rho * Cd * A * vel[i]**2) / (2 * m)
+        drag = (rho * Cd * A * vel[i] * abs(vel[i])) / (2 * m)
+
+        # acc[i+1] = (gravity - rolling - drag) / (1 + I/(m*r**2))
+
+        # vel[i+1] = vel[i] + acc[i+1]*step
+        # pos[i+1] = pos[i] + vel[i+1]*step
+        
+        acc[i] = (gravity - rolling - drag) / (1 + I/(m*r**2))
+        vel[i+1] = vel[i] + acc[i]*step
+        pos[i+1] = pos[i] + vel[i]*step
+
+        if vel[i+1] < 0:
+            vel[i+1] = 0
+        
+        h = height(pos[i])
+
+        PE[i] = m * g * h
+        KE[i] = 0.5 * m * vel[i]**2
+
+        omega = vel[i] / r
+        KE_rot[i] = 0.5 * I * omega**2
+
+        E_total[i] = PE[i] + KE[i] + KE_rot[i]
+
+        if pos[i] >= track_length*2:
+            vel[i+1] = 0
+            pos[i+1] = track_length*2
+            acc[i+1] = 0
+            continue
+
+    return sec, pos, vel, acc, PE, KE, KE_rot, E_total, E_loss, label
+
+
+# =============================
+# DEFINE CARS
+# -----------------------------
+# TO FIND mu_roll:
+# 1) put car on flat surface, 
+# 2) increase angle of ramp until car just starts to roll
+#
+# μroll​=tan(θ)
+# =============================
+
+BlockCar = simulate_car(
+    m=0.15,
+    A=0.0020,                # Fill In
+    mu_roll=math.tan(2.2*(180/math.pi)),
+    label="Block Car",
+    Re_data=Block_Re,
+    cd_data=Block_cd
+)
+
+F1Car = simulate_car(
+    m=0.15,
+    A=0.0018,
+    mu_roll=math.tan(2.4*(180/math.pi)),
+    label="F1 Car",
+    Re_data=F1_Re,
+    cd_data=F1_cd
+)
+
+Champion = simulate_car(
+    m=0.15,
+    A=0.0014,
+    mu_roll=math.tan(2.95*(180/math.pi)),
+    label="Championship Car",
+    Re_data=Champion_Re,
+    cd_data=Champion_cd
+)
+
+
+# =============================
+# PLOTTING
+# =============================
+color_map = {
+    "Block Car": "dodgerblue",
+    "F1 Car": "tomato",
+    "Championship Car": "forestgreen"
+}
+
+fig = plt.figure(figsize=(10,10))
+gridsize = (3,1)
+
+ax1 = plt.subplot2grid(gridsize, (0,0))
+ax2 = plt.subplot2grid(gridsize, (1,0))
+ax3 = plt.subplot2grid(gridsize, (2,0))
+# ax4 = plt.subplot2grid(gridsize, (3,0))
+
+cars = [BlockCar, F1Car, Champion]
+
+for sec, pos, vel, acc, PE, KE, KE_rot, E_total, E_loss, label in cars:
+    color = color_map[label]
+
+    ax1.plot(sec, pos, lw=2, label=label, color=color)
+    ax2.plot(sec, vel, lw=2, label=label, color=color)
+    ax3.plot(sec, acc, lw=2, label=label, color=color)
+
+    # Energy plot
+    # ax4.plot(sec, PE, '--', color=color, label=label + " PE")
+    # ax4.plot(sec, KE, color=color, alpha=0.7, label=label + " KE")
+    # ax4.plot(sec, KE_rot, ':', color=color, label=label + " Rot")
+    # ax4.plot(sec, E_total, lw=2, color=color, label=label + " Total")
+
+ax1.set_title('PINEWOOD DERBY MODEL', fontsize=14)
+ax1.set_ylabel('Position [m]')
+ax2.set_ylabel('Velocity [m/s]')
+ax3.set_ylabel('Acceleration [m/s²]')
+ax3.set_xlabel('Time [s]')
+# ax4.set_ylabel('Energy [J]')
+# ax4.set_xlabel('Time [s]')
+
+for ax in [ax1, ax2, ax3]:
+    ax.grid(ls='-.', lw=0.5)
+    ax.legend()
+
+# =============================
+# ENERGY PLOTS (SEPARATE FIGURE)
+# =============================
+
+figE, axes = plt.subplots(3, 1, figsize=(10, 10), sharex=True)
+
+# First pass: find global min/max for consistent bounds
+E_min = float('inf')
+E_max = float('-inf')
+
+for sec, pos, vel, acc, PE, KE, KE_rot, E_total, E_loss, label in cars:
+    E_min = min(E_min, np.min(E_total))
+    E_max = max(E_max, np.max(E_total))
+
+# Add a little padding
+padding = 0.05 * (E_max - E_min)
+E_min -= padding
+E_max += padding
+
+# Plot each car in its own subplot
+for ax, (sec, pos, vel, acc, PE, KE, KE_rot, E_total, E_loss, label) in zip(axes, cars):
+    
+    color = color_map[label]
+
+    ax.plot(sec, PE, '--', color=color, label='PE')
+    ax.plot(sec, KE, color=color, label='KE')
+    ax.plot(sec, KE_rot, ':', color=color, label='Rot')
+    ax.plot(sec, E_total, lw=2, color=color, label='Total')
+
+    ax.set_title(label)
+    ax.set_ylabel('Energy [J]')
+    ax.set_ylim(E_min, E_max)
+    ax.grid(ls='-.', lw=0.5)
+    ax.legend()
+
+axes[-1].set_xlabel('Time [s]')
+
+plt.tight_layout()
+plt.show()

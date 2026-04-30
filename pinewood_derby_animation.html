@@ -1,0 +1,381 @@
+
+<h2 class="sr-only">Pinewood Derby simulation animation showing three cars racing down a ramp and across a flat track</h2>
+
+<style>
+  #derby-wrap { padding: 1rem 0; font-family: var(--font-mono); }
+  #canvas { width: 100%; border-radius: var(--border-radius-lg); display: block; }
+  .controls { display: flex; align-items: center; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+  .ctrl-btn { cursor: pointer; padding: 6px 16px; font-size: 13px; border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-secondary); background: var(--color-background-secondary); color: var(--color-text-primary); font-family: var(--font-mono); }
+  .ctrl-btn:hover { background: var(--color-background-tertiary); }
+  .speed-label { font-size: 12px; color: var(--color-text-secondary); }
+  .legend { display: flex; gap: 16px; margin-top: 10px; flex-wrap: wrap; }
+  .leg-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--color-text-secondary); }
+  .leg-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+  .stat-card { background: var(--color-background-secondary); border-radius: var(--border-radius-md); padding: 8px 12px; }
+  .stat-name { font-size: 11px; color: var(--color-text-secondary); margin-bottom: 2px; }
+  .stat-val { font-size: 13px; font-weight: 500; color: var(--color-text-primary); }
+  .stat-sub { font-size: 10px; color: var(--color-text-tertiary); }
+  .finish-label { font-size: 12px; color: var(--color-text-secondary); margin-top: 8px; min-height: 18px; }
+</style>
+
+<div id="derby-wrap">
+  <canvas id="canvas" height="260"></canvas>
+  <div class="legend">
+    <div class="leg-item"><div class="leg-dot" style="background:#378ADD"></div>Block Car</div>
+    <div class="leg-item"><div class="leg-dot" style="background:#D85A30"></div>F1 Car</div>
+    <div class="leg-item"><div class="leg-dot" style="background:#1D9E75"></div>Championship Car</div>
+  </div>
+  <div class="stats" id="stats">
+    <div class="stat-card"><div class="stat-name" style="color:#378ADD">Block Car</div><div class="stat-val" id="v0">0.00 m/s</div><div class="stat-sub" id="p0">pos: 0.00 m</div></div>
+    <div class="stat-card"><div class="stat-name" style="color:#D85A30">F1 Car</div><div class="stat-val" id="v1">0.00 m/s</div><div class="stat-sub" id="p1">pos: 0.00 m</div></div>
+    <div class="stat-card"><div class="stat-name" style="color:#1D9E75">Championship</div><div class="stat-val" id="v2">0.00 m/s</div><div class="stat-sub" id="p2">pos: 0.00 m</div></div>
+  </div>
+  <div class="finish-label" id="finish-label"></div>
+  <div class="controls">
+    <button class="ctrl-btn" id="btn-play">▶ Start</button>
+    <button class="ctrl-btn" id="btn-reset">↺ Reset</button>
+    <span class="speed-label">Speed:</span>
+    <input type="range" min="0.25" max="4" step="0.25" value="1" id="speed-slider" style="width:100px">
+    <span class="speed-label" id="speed-out">1×</span>
+  </div>
+</div>
+
+<script>
+(function(){
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+
+  function dpr() { return window.devicePixelRatio || 1; }
+
+  function resize() {
+    const W = canvas.parentElement.clientWidth || 640;
+    const H = 260;
+    canvas.width = W * dpr();
+    canvas.height = H * dpr();
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.scale(dpr(), dpr());
+  }
+  resize();
+  window.addEventListener('resize', () => { resize(); if(!running) drawFrame(); });
+
+  function getW() { return canvas.width / dpr(); }
+  function getH() { return canvas.height / dpr(); }
+
+  // ---- Physics ----
+  const g = 9.81, rho = 1.2, mu_air = 1.8e-5;
+  const r_wheel = 0.015;
+  const I_wheel = 0.5 * 0.03 * r_wheel * r_wheel;
+  const theta = Math.PI / 12;
+  const track_length = 1.0;
+  const L = 0.03;
+  const SIM_DT = 0.001;
+  const SIM_END = 5.0;
+  const N = Math.round(SIM_END / SIM_DT);
+
+  function Cd(v) {
+    const Re = rho * Math.abs(v) * L / mu_air;
+    if (Re < 1e4) return 1.2;
+    if (Re < 5e4) return 0.9;
+    return 0.7;
+  }
+
+  function simulate(m, A, mu_roll) {
+    const pos = new Float64Array(N);
+    const vel = new Float64Array(N);
+    const acc = new Float64Array(N);
+    for (let i = 0; i < N-1; i++) {
+      const angle = pos[i] < track_length/2 ? theta : 0;
+      const grav = g * Math.sin(angle);
+      const roll = mu_roll * g * Math.cos(angle);
+      const cd = Cd(vel[i]);
+      const drag = (rho * cd * A * vel[i]*vel[i]) / (2*m);
+      acc[i+1] = (grav - roll - drag) / (1 + I_wheel/(m*r_wheel*r_wheel));
+      vel[i+1] = vel[i] + acc[i+1]*SIM_DT;
+      if (vel[i+1] < 0) vel[i+1] = 0;
+      pos[i+1] = pos[i] + vel[i+1]*SIM_DT;
+    }
+    return { pos, vel, acc };
+  }
+
+  const carDefs = [
+    { m:0.14, A:0.0016, mu_roll:Math.tan(2.2),  label:'Block Car',        color:'#378ADD', bodyColor:'#185FA5' },
+    { m:0.14, A:0.0018, mu_roll:Math.tan(2.4), label:'F1 Car',           color:'#D85A30', bodyColor:'#993C1D' },
+    { m:0.14, A:0.0014, mu_roll:Math.tan(2.95), label:'Championship Car', color:'#1D9E75', bodyColor:'#0F6E56' },
+  ];
+
+  const sims = carDefs.map(c => simulate(c.m, c.A, c.mu_roll));
+
+  // Find finish times
+  const finishTimes = sims.map(s => {
+    for (let i = 0; i < N; i++) {
+      if (s.pos[i] >= track_length) return i * SIM_DT;
+    }
+    return null;
+  });
+
+  // ---- Layout ----
+  // Track spans from x=PAD to x=W-PAD, split at midpoint
+  // Ramp goes from top-left down to midpoint, flat goes right
+  const PAD = 30;
+  const RAMP_FRAC = 0.5; // first half of track is ramp
+
+  function trackLayout() {
+    const W = getW(), H = getH();
+    const x0 = PAD, x1 = W - PAD;
+    const trackW = x1 - x0;
+    const midX = x0 + trackW * RAMP_FRAC;
+    const midY = H - 60;
+    const rampHeight = 140;
+    const startX = x0, startY = midY - rampHeight;
+    const endX = x1, endY = midY;
+    return { startX, startY, midX, midY, endX, endY, trackW };
+  }
+
+  function physToScreen(physPos) {
+    const tl = trackLayout();
+    const frac = physPos / track_length;
+    if (frac <= RAMP_FRAC) {
+      const t = frac / RAMP_FRAC;
+      return {
+        x: tl.startX + t*(tl.midX - tl.startX),
+        y: tl.startY + t*(tl.midY - tl.startY)
+      };
+    } else {
+      const t = (frac - RAMP_FRAC) / (1 - RAMP_FRAC);
+      return {
+        x: tl.midX + t*(tl.endX - tl.midX),
+        y: tl.midY
+      };
+    }
+  }
+
+  function rampAngle() {
+    const tl = trackLayout();
+    return Math.atan2(tl.midY - tl.startY, tl.midX - tl.startX);
+  }
+
+  // ---- Drawing ----
+  function drawTrack() {
+    const tl = trackLayout();
+    const W = getW(), H = getH();
+
+    // Sky-ish bg
+    ctx.fillStyle = 'rgba(56,138,221,0.04)';
+    ctx.fillRect(0, 0, W, H);
+
+    // Ramp surface
+    const rampAngle = Math.atan2(tl.midY - tl.startY, tl.midX - tl.startX);
+    const thick = 8;
+
+    ctx.save();
+    ctx.strokeStyle = '#888780';
+    ctx.lineWidth = thick;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(tl.startX, tl.startY);
+    ctx.lineTo(tl.midX, tl.midY);
+    ctx.stroke();
+
+    // Flat surface
+    ctx.beginPath();
+    ctx.moveTo(tl.midX, tl.midY);
+    ctx.lineTo(tl.endX, tl.midY);
+    ctx.stroke();
+    ctx.restore();
+
+    // Ramp surface highlight
+    ctx.save();
+    ctx.strokeStyle = '#B4B2A9';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(tl.startX, tl.startY);
+    ctx.lineTo(tl.midX, tl.midY);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(tl.midX, tl.midY);
+    ctx.lineTo(tl.endX, tl.midY);
+    ctx.stroke();
+    ctx.restore();
+
+    // Finish line
+    const finX = tl.endX - 2;
+    ctx.save();
+    for (let seg = 0; seg < 8; seg++) {
+      ctx.fillStyle = seg%2===0 ? '#2C2C2A' : '#F1EFE8';
+      ctx.fillRect(finX - 1, tl.midY - thick/2 - 12 + seg*3, 6, 3);
+    }
+    ctx.restore();
+
+    // Start label
+    ctx.save();
+    ctx.font = '10px var(--font-mono, monospace)';
+    ctx.fillStyle = '#888780';
+    ctx.textAlign = 'center';
+    ctx.fillText('START', tl.startX + 10, tl.startY - 8);
+    ctx.fillText('FINISH', tl.endX, tl.midY - 20);
+    ctx.restore();
+
+    // Ground
+    ctx.save();
+    ctx.fillStyle = '#D3D1C7';
+    ctx.fillRect(0, tl.midY + thick/2, W, 2);
+    ctx.restore();
+  }
+
+  function drawCar(physPos, physVel, carDef, laneOffset) {
+    const screen = physToScreen(physPos);
+    const frac = physPos / track_length;
+    const onRamp = frac <= RAMP_FRAC;
+    const angle = onRamp ? rampAngle() : 0;
+    const W = 22, H = 9;
+
+    ctx.save();
+    ctx.translate(screen.x, screen.y - 6 + laneOffset);
+    ctx.rotate(angle);
+
+    // Wheels
+    const wr = 4;
+    [-W/2+5, W/2-5].forEach(wx => {
+      ctx.beginPath();
+      ctx.arc(wx, H/2+1, wr, 0, Math.PI*2);
+      ctx.fillStyle = '#2C2C2A';
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(wx, H/2+1, 2, 0, Math.PI*2);
+      ctx.fillStyle = '#888780';
+      ctx.fill();
+    });
+
+    // Body
+    ctx.beginPath();
+    ctx.roundRect(-W/2, -H/2, W, H, 3);
+    ctx.fillStyle = carDef.color;
+    ctx.fill();
+
+    // Roof highlight
+    ctx.beginPath();
+    ctx.roundRect(-W/2+2, -H/2+1, W-4, H/2, 2);
+    ctx.fillStyle = carDef.bodyColor;
+    ctx.fill();
+
+    // Windshield glint
+    ctx.beginPath();
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.fillRect(-W/2+3, -H/2+2, 6, 3);
+
+    ctx.restore();
+  }
+
+  // ---- Animation loop ----
+  let running = false;
+  let simTime = 0;
+  let speedMult = 1;
+  let lastRealTime = null;
+  let raf = null;
+  let finishOrder = [];
+  let finished = [false, false, false];
+
+  const btnPlay = document.getElementById('btn-play');
+  const btnReset = document.getElementById('btn-reset');
+  const speedSlider = document.getElementById('speed-slider');
+  const speedOut = document.getElementById('speed-out');
+  const finishLabel = document.getElementById('finish-label');
+
+  speedSlider.addEventListener('input', () => {
+    speedMult = parseFloat(speedSlider.value);
+    speedOut.textContent = speedMult + '×';
+  });
+
+  btnPlay.addEventListener('click', () => {
+    if (running) {
+      running = false;
+      btnPlay.textContent = '▶ Resume';
+      lastRealTime = null;
+    } else {
+      running = true;
+      btnPlay.textContent = '⏸ Pause';
+      lastRealTime = null;
+      requestAnimationFrame(loop);
+    }
+  });
+
+  btnReset.addEventListener('click', reset);
+
+  function reset() {
+    running = false;
+    simTime = 0;
+    lastRealTime = null;
+    finishOrder = [];
+    finished = [false, false, false];
+    btnPlay.textContent = '▶ Start';
+    finishLabel.textContent = '';
+    cancelAnimationFrame(raf);
+    updateStats();
+    drawFrame();
+  }
+
+  function getSimIndex(t) {
+    return Math.min(Math.floor(t / SIM_DT), N-1);
+  }
+
+  function updateStats() {
+    const idx = getSimIndex(simTime);
+    const ids = ['v0','v1','v2'];
+    const pids = ['p0','p1','p2'];
+    sims.forEach((s, i) => {
+      document.getElementById(ids[i]).textContent = s.vel[idx].toFixed(2) + ' m/s';
+      document.getElementById(pids[i]).textContent = 'pos: ' + Math.min(s.pos[idx], track_length).toFixed(2) + ' m';
+    });
+  }
+
+  function drawFrame() {
+    const W = getW(), H = getH();
+    ctx.clearRect(0, 0, W, H);
+    drawTrack();
+    const idx = getSimIndex(simTime);
+    const lanes = [-5, 0, 5];
+    // draw in reverse so first car is on top
+    [2,1,0].forEach(i => {
+      const pos = Math.min(sims[i].pos[idx], track_length);
+      drawCar(pos, sims[i].vel[idx], carDefs[i], lanes[i]);
+    });
+  }
+
+  function loop(realTs) {
+    if (!running) return;
+    if (lastRealTime === null) lastRealTime = realTs;
+    const dt = (realTs - lastRealTime) / 1000;
+    lastRealTime = realTs;
+    simTime += dt * speedMult;
+
+    if (simTime > SIM_END) simTime = SIM_END;
+
+    // Check finishes
+    const idx = getSimIndex(simTime);
+    sims.forEach((s, i) => {
+      if (!finished[i] && s.pos[idx] >= track_length) {
+        finished[i] = true;
+        finishOrder.push(i);
+        const places = ['1st','2nd','3rd'];
+        const place = places[finishOrder.length-1];
+        finishLabel.textContent = (finishLabel.textContent ? finishLabel.textContent + '  ' : '')
+          + place + ': ' + carDefs[i].label + ' (' + finishTimes[i].toFixed(3) + 's)';
+      }
+    });
+
+    drawFrame();
+    updateStats();
+
+    if (simTime < SIM_END) {
+      raf = requestAnimationFrame(loop);
+    } else {
+      running = false;
+      btnPlay.textContent = '▶ Start';
+    }
+  }
+
+  drawFrame();
+})();
+</script>
