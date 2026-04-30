@@ -224,7 +224,7 @@ for ax, (sec, pos, vel, acc, PE, KE, KE_rot, E_total, E_loss, label) in zip(axes
 axes[-1].set_xlabel('Time [s]')
 
 plt.tight_layout()
-plt.savefig('kinematics.png', dpi=150)
-figE.savefig('energy.png', dpi=150)
+plt.savefig('output\\kinematics.png', dpi=150)
+figE.savefig('output\\energy.png', dpi=150)
 plt.show()
 print("Done.")
