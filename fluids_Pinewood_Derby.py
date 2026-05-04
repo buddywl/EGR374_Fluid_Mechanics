@@ -21,7 +21,7 @@ theta = np.radians(5)
 track_length = 1.5        # meters
 
 # Characteristic length (car height-ish)
-L = 0.03      # meters
+L = 0.044      # meters
 
 def compute_Re_data(v_data):
     return rho * v_data * L / mu_air
@@ -94,10 +94,6 @@ def simulate_car(m, A, mu_roll, label, Re_data, cd_data):
         vel[i+1] = vel[i] + acc[i] * step
         pos[i+1] = pos[i] + vel[i] * step
 
-        # Clamp negative velocity (car shouldn't roll backward)
-        # if vel[i+1] < 0:
-        #     vel[i+1] = 0
-
         h = height(pos[i+1])
 
         PE[i+1] = m * g * h
@@ -121,6 +117,8 @@ def simulate_car(m, A, mu_roll, label, Re_data, cd_data):
 # =============================
 # DEFINE CARS
 # -----------------------------
+# place car on flat surface
+# increase angle of surface until car rolls
 # mu_roll = tan(angle_in_degrees converted to radians)
 # e.g. math.tan(math.radians(2.2)) for a 2.2-degree rolling angle
 # =============================
@@ -156,6 +154,7 @@ Champion = simulate_car(
 # =============================
 # PLOTTING
 # =============================
+# POSITION, VELOCITY, ACCELERATION
 color_map = {
     "Block Car": "dodgerblue",
     "F1 Car": "tomato",
@@ -189,10 +188,7 @@ for ax in [ax1, ax2, ax3]:
 
 plt.tight_layout()
 
-# =============================
-# ENERGY PLOTS (SEPARATE FIGURE)
-# =============================
-
+# ENERGY PLOTS
 figE, axes = plt.subplots(3, 1, figsize=(10, 10), sharex=True)
 
 E_min = float('inf')
