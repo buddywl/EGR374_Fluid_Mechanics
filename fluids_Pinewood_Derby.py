@@ -84,13 +84,8 @@ def simulate_car(m, A, mu_roll, label, Re_data, cd_data):
             angle = 0
 
         # Forces
-        # gravity = g * np.sin(angle)
-        # rolling = mu_roll * g * np.cos(angle)
-
         Cd = Cd_from_Re(vel[i], Re_data, cd_data)
-        # drag = (rho * Cd * A * vel[i] * abs(vel[i])) / (2 * m)
 
-        # acc[i] = (gravity - rolling - drag) / (1 + I / (m * r**2))
         F_gravity  =  m * g * np.sin(angle)
         F_rolling = mu_roll * m * g * np.cos(0)
         F_drag     =  0.5 * rho * Cd * A * vel[i] * abs(vel[i])
