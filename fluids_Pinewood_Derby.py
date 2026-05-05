@@ -21,19 +21,19 @@ theta = np.radians(5)
 track_length = 1.5        # meters
 
 # Characteristic length (car height-ish)
-L = 0.044      # meters
+L = 0.03      # meters
 
 def compute_Re_data(v_data):
     return rho * v_data * L / mu_air
 
 F1_v = np.array([1.8, 3.5, 6.8, 11])
-F1_cd = np.array([0.4188, 0.1265, 0.7918, 0.6743])
+F1_cd = np.array([0.3947, 0.1192, 0.7461, 0.6354])
 
 Block_v = np.array([1.8, 3.5, 6.8, 11])
-Block_cd = np.array([0.5252, 0.3425, 0.9630, 0.7902])
+Block_cd = np.array([0.5425, 0.3538, 0.9948, 0.8162])
 
 Champion_v = np.array([1.8, 3.5, 6.8, 11])
-Champion_cd = np.array([0, 0.0025, 0.9046, 0.6830])
+Champion_cd = np.array([-0.0488, 0.0019, 0.6633, 0.5008])
 
 F1_Re = compute_Re_data(F1_v)
 Block_Re = compute_Re_data(Block_v)
@@ -84,13 +84,18 @@ def simulate_car(m, A, mu_roll, label, Re_data, cd_data):
             angle = 0
 
         # Forces
-        gravity = g * np.sin(angle)
-        rolling = mu_roll * g * np.cos(angle)
+        # gravity = g * np.sin(angle)
+        # rolling = mu_roll * g * np.cos(angle)
 
         Cd = Cd_from_Re(vel[i], Re_data, cd_data)
-        drag = (rho * Cd * A * vel[i] * abs(vel[i])) / (2 * m)
+        # drag = (rho * Cd * A * vel[i] * abs(vel[i])) / (2 * m)
 
-        acc[i] = (gravity - rolling - drag) / (1 + I / (m * r**2))
+        # acc[i] = (gravity - rolling - drag) / (1 + I / (m * r**2))
+        F_gravity  =  m * g * np.sin(angle)
+        F_rolling = mu_roll * m * g * np.cos(0)
+        F_drag     =  0.5 * rho * Cd * A * vel[i] * abs(vel[i])
+
+        acc[i] = (F_gravity - F_rolling - F_drag) / (m + I / (r**2))
         vel[i+1] = vel[i] + acc[i] * step
         pos[i+1] = pos[i] + vel[i] * step
 
@@ -102,9 +107,9 @@ def simulate_car(m, A, mu_roll, label, Re_data, cd_data):
         KE_rot[i+1] = 0.5 * I * omega**2
         E_total[i] = PE[i] + KE[i] + KE_rot[i]
 
-        if pos[i] >= track_length * 2:
+        if pos[i] >= track_length:
             vel[i+1] = 0
-            pos[i+1] = track_length * 2
+            pos[i+1] = track_length
             acc[i+1] = 0
             continue
 
@@ -126,7 +131,7 @@ def simulate_car(m, A, mu_roll, label, Re_data, cd_data):
 BlockCar = simulate_car(
     m=0.15,
     A=0.0020,
-    mu_roll=math.tan(math.radians(2.2)),
+    mu_roll=math.tan(math.radians(2.95)),
     label="Block Car",
     Re_data=Block_Re,
     cd_data=Block_cd
@@ -135,7 +140,7 @@ BlockCar = simulate_car(
 F1Car = simulate_car(
     m=0.15,
     A=0.0018,
-    mu_roll=math.tan(math.radians(2.4)),
+    mu_roll=math.tan(math.radians(2.7)),
     label="F1 Car",
     Re_data=F1_Re,
     cd_data=F1_cd
@@ -144,7 +149,7 @@ F1Car = simulate_car(
 Champion = simulate_car(
     m=0.15,
     A=0.0014,
-    mu_roll=math.tan(math.radians(2.95)),
+    mu_roll=math.tan(math.radians(2.1)),
     label="Championship Car",
     Re_data=Champion_Re,
     cd_data=Champion_cd
@@ -220,7 +225,7 @@ for ax, (sec, pos, vel, acc, PE, KE, KE_rot, E_total, E_loss, label) in zip(axes
 axes[-1].set_xlabel('Time [s]')
 
 plt.tight_layout()
-plt.savefig('output\\kinematics.png', dpi=150)
-figE.savefig('output\\energy.png', dpi=150)
+# plt.savefig('output\\kinematics.png', dpi=150)
+# figE.savefig('output\\energy.png', dpi=150)
 plt.show()
 print("Done.")
